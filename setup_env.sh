@@ -23,6 +23,19 @@ create_dir_if_missing "notebooks"
 create_dir_if_missing "results"
 create_dir_if_missing "src"
 
+# Check if yq is installed, install if missing
+if ! command -v yq &> /dev/null; then
+    echo "Installing yq for YAML processing..."
+    if [[ "$(uname)" == "Darwin" ]]; then
+        brew install yq
+    else
+        echo "Please install yq manually:"
+        echo "Ubuntu/Debian: sudo snap install yq"
+        echo "Other: See https://github.com/mikefarah/yq#install"
+        exit 1
+    fi
+fi
+
 echo "Creating conda environment for DNABERT_2 with Python 3.11..."
 # Create a new conda environment with Python 3.11 if it doesn't exist
 if ! conda info --envs | grep -q "^dnabert_env"; then
@@ -47,8 +60,8 @@ else
     pip install torch==2.0.0 torchvision==0.15.0 torchaudio==2.0.0 --index-url https://download.pytorch.org/whl/cpu
 fi
 
-# Install other dependencies
-pip install transformers datasets pandas numpy scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib
+# Install other dependencies including PyYAML
+pip install transformers datasets pandas numpy scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib pyyaml
 
 # Check if DNABERT_2 is already cloned
 if [ ! -d "src/DNABERT_2" ]; then
@@ -90,5 +103,8 @@ fi
 echo
 echo "Environment setup complete!"
 echo "Project directories verified: data, models, notebooks, results, src"
+echo "Dependencies installed:"
+echo "- yq (system-level YAML processor)"
+echo "- PyYAML (Python YAML library)"
 echo "Note: The src directory has been added to PYTHONPATH for DNABERT_2 imports"
 echo "To activate the environment: conda activate dnabert_env"

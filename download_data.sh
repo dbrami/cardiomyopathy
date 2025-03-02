@@ -1,11 +1,26 @@
 #!/bin/bash
 
-# Exit immediately if a command fails.
+# Exit immediately if a command fails
 set -e
 
+# Check if yq is installed (for YAML parsing)
+if ! command -v yq &> /dev/null; then
+    echo "yq is required but not installed. Please install it:"
+    echo "On macOS: brew install yq"
+    echo "On Linux: snap install yq"
+    exit 1
+fi
+
 # Create log file and directories
-mkdir -p data/geo data/encode data/gtex data/reference data/logs
-LOG_FILE="data/logs/download_log_$(date +%Y%m%d_%H%M%S).txt"
+data_dir=$(yq '.directories.data' config.yaml)
+geo_dir=$(yq '.directories.geo' config.yaml)
+encode_dir=$(yq '.directories.encode' config.yaml)
+gtex_dir=$(yq '.directories.gtex' config.yaml)
+reference_dir=$(yq '.directories.reference' config.yaml)
+logs_dir=$(yq '.directories.logs' config.yaml)
+
+mkdir -p "$geo_dir" "$encode_dir" "$gtex_dir" "$reference_dir" "$logs_dir"
+LOG_FILE="${logs_dir}/download_log_$(date +%Y%m%d_%H%M%S).txt"
 
 # Arrays to store file statuses
 declare -a SKIPPED_FILES=()
@@ -24,7 +39,6 @@ log_download() {
     local status="$3"
     echo "$(date '+%Y-%m-%d %H:%M:%S') | $file | $url | $status" >> "$LOG_FILE"
     
-    # Store files in appropriate arrays
     case "$status" in
         "SKIPPED (already exists)")
             SKIPPED_FILES+=("$file")
@@ -43,6 +57,7 @@ download_file() {
     local url="$1"
     local output="$2"
     local description="$3"
+    local is_compressed="$4"
 
     if [ -f "$output" ]; then
         log_download "$output" "$url" "SKIPPED (already exists)"
@@ -56,6 +71,13 @@ download_file() {
             echo "----------------------------------------"
             log_download "$output" "$url" "SUCCESS"
             log_message "Successfully downloaded: $output"
+            
+            # If compressed and ends with .gz, extract it
+            if [ "$is_compressed" = "true" ] && [[ "$output" == *.gz ]]; then
+                log_message "Extracting $output..."
+                gunzip -f "$output"
+                log_message "Extraction complete"
+            fi
         else
             echo "----------------------------------------"
             log_download "$output" "$url" "FAILED"
@@ -77,35 +99,42 @@ log_message "Starting downloads at $(date)"
 log_message "----------------------------------------"
 
 # GEO RNA-seq dataset (GSE55296)
-GEO_URL="https://ftp.ncbi.nlm.nih.gov/geo/series/GSE55nnn/GSE55296/matrix/GSE55296_series_matrix.txt.gz"
-download_file "$GEO_URL" "data/geo/GSE55296_series_matrix.txt.gz" "GEO RNA-seq dataset" && \
-    gunzip -f "data/geo/GSE55296_series_matrix.txt.gz"
+geo_url=$(yq '.files.geo.series_matrix.url' config.yaml)
+geo_file="${geo_dir}/$(yq '.files.geo.series_matrix.filename' config.yaml)"
+geo_compressed=$(yq '.files.geo.series_matrix.compressed' config.yaml)
+download_file "$geo_url" "$geo_file.gz" "GEO RNA-seq dataset" "$geo_compressed"
 
 # GTEx data
-# RNA-seq TPM Data (v10)
-GTEX_TPM_URL="https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_tpm.gct.gz"
-download_file "$GTEX_TPM_URL" "data/gtex/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_tpm.gct.gz" "GTEx RNA-seq TPM data"
+gtex_tpm_url=$(yq '.files.gtex.tpm_data.url' config.yaml)
+gtex_tpm_file="${gtex_dir}/$(yq '.files.gtex.tpm_data.filename' config.yaml)"
+gtex_tpm_compressed=$(yq '.files.gtex.tpm_data.compressed' config.yaml)
+download_file "$gtex_tpm_url" "$gtex_tpm_file" "GTEx RNA-seq TPM data" "$gtex_tpm_compressed"
 
-# Sample Attributes (v10)
-GTEX_SAMPLE_URL="https://storage.googleapis.com/adult-gtex/annotations/v10/metadata-files/GTEx_Analysis_v10_Annotations_SampleAttributesDS.txt"
-download_file "$GTEX_SAMPLE_URL" "data/gtex/GTEx_Analysis_v10_Annotations_SampleAttributesDS.txt" "GTEx sample attributes"
+# Sample Attributes
+sample_attr_url=$(yq '.files.gtex.sample_attributes.url' config.yaml)
+sample_attr_file="${gtex_dir}/$(yq '.files.gtex.sample_attributes.filename' config.yaml)"
+sample_attr_compressed=$(yq '.files.gtex.sample_attributes.compressed' config.yaml)
+download_file "$sample_attr_url" "$sample_attr_file" "GTEx sample attributes" "$sample_attr_compressed"
 
-# Subject Phenotypes (v10)
-GTEX_PHENOTYPE_URL="https://storage.googleapis.com/adult-gtex/annotations/v10/metadata-files/GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt"
-download_file "$GTEX_PHENOTYPE_URL" "data/gtex/GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt" "GTEx subject phenotypes"
+# Subject Phenotypes
+subject_phen_url=$(yq '.files.gtex.subject_phenotypes.url' config.yaml)
+subject_phen_file="${gtex_dir}/$(yq '.files.gtex.subject_phenotypes.filename' config.yaml)"
+subject_phen_compressed=$(yq '.files.gtex.subject_phenotypes.compressed' config.yaml)
+download_file "$subject_phen_url" "$subject_phen_file" "GTEx subject phenotypes" "$subject_phen_compressed"
 
 # Reference genome
-REF_URL="https://ftp.ensembl.org/pub/current_fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz"
-download_file "$REF_URL" "data/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz" "Reference genome"
+ref_url=$(yq '.files.reference.genome.url' config.yaml)
+ref_file="${reference_dir}/$(yq '.files.reference.genome.filename' config.yaml)"
+ref_compressed=$(yq '.files.reference.genome.compressed' config.yaml)
+download_file "$ref_url" "$ref_file" "Reference genome" "$ref_compressed"
 
 # ENCODE data note
 log_message "----------------------------------------"
 log_message "ENCODE data requires manual download:"
-log_message "1. Visit https://www.encodeproject.org/"
-log_message "2. Search for 'heart tissue ChIP-seq'"
-log_message "3. Download relevant BED files to data/encode/"
-ENCODE_URL="https://www.encodeproject.org/search/?type=Experiment&status=released&searchTerm=heart+tissue&assay_title=Histone+ChIP-seq&biosample_ontology.term_name=heart+left+ventricle&files.file_type=bed+narrowPeak"
-# save the files.txt into 'data/encode/' and then download them using 'xargs -n 1 curl -O -L < files.txt'
+encode_desc=$(yq '.files.encode.description' config.yaml)
+echo "$encode_desc" | while IFS= read -r line; do
+    log_message "$line"
+done
 
 # Print summary
 log_message "----------------------------------------"
@@ -133,10 +162,10 @@ fi
 
 echo
 echo "Data directories status:"
-echo "- data/geo/: GEO RNA-seq data"
-echo "- data/encode/: Requires manual download"
-echo "- data/gtex/: GTEx data files (v10 RNA-seq TPM + annotations)"
-echo "- data/reference/: Reference genome"
-echo "- data/logs/: Download logs"
+echo "- $geo_dir/: GEO RNA-seq data"
+echo "- $encode_dir/: Requires manual download"
+echo "- $gtex_dir/: GTEx data files ($(yq '.files.gtex.version' config.yaml) RNA-seq TPM + annotations)"
+echo "- $reference_dir/: Reference genome"
+echo "- $logs_dir/: Download logs"
 echo
 echo "For detailed download status and existing files list, check: $LOG_FILE"

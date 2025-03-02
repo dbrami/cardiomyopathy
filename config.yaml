@@ -1,0 +1,46 @@
+version: '1.0'
+
+# Base directories relative to project root
+directories:
+  data: data
+  geo: data/geo
+  encode: data/encode
+  gtex: data/gtex
+  reference: data/reference
+  logs: data/logs
+
+# File configurations
+files:
+  geo:
+    series_matrix:
+      url: https://ftp.ncbi.nlm.nih.gov/geo/series/GSE55nnn/GSE55296/matrix/GSE55296_series_matrix.txt.gz
+      filename: GSE55296_series_matrix.txt
+      compressed: true
+
+  gtex:
+    version: v10
+    tpm_data:
+      url: https://storage.googleapis.com/adult-gtex/bulk-gex/v10/rna-seq/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_tpm.gct.gz
+      filename: GTEx_Analysis_v10_RNASeQCv2.4.2_gene_tpm.gct.gz
+      compressed: true
+    sample_attributes:
+      url: https://storage.googleapis.com/adult-gtex/annotations/v10/metadata-files/GTEx_Analysis_v10_Annotations_SampleAttributesDS.txt
+      filename: GTEx_Analysis_v10_Annotations_SampleAttributesDS.txt
+      compressed: false
+    subject_phenotypes:
+      url: https://storage.googleapis.com/adult-gtex/annotations/v10/metadata-files/GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt
+      filename: GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt
+      compressed: false
+
+  reference:
+    genome:
+      url: https://ftp.ensembl.org/pub/current_fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
+      filename: Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
+      compressed: true
+
+  encode:
+    description: |
+      ENCODE data requires manual download from:
+      https://www.encodeproject.org/
+      Search for: 'heart tissue ChIP-seq'
+    search_url: https://www.encodeproject.org/search/?type=Experiment&status=released&searchTerm=heart+tissue&assay_title=Histone+ChIP-seq&biosample_ontology.term_name=heart+left+ventricle&files.file_type=bed+narrowPeak
