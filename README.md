@@ -21,7 +21,7 @@
   - **Conda** (for environment management)
   - **PyTorch** (with MPS support on Mac)
   - **Jupyter Notebook**
-  - **DNABERT** (cloned from its GitHub repository)
+  - **DNABERT_2** (cloned from its GitHub repository)
   - Additional libraries: Hugging Face Transformers, Pandas, NumPy, scikit-learn, Biopython, etc.
 
 ### Environment Setup
@@ -39,25 +39,40 @@ A script (see below) can be used to set up a conda environment, install dependen
 
 Identify and download datasets relevant to both genomic and transcriptomic analyses:
 
-### Suggested Datasets
-- **GEO RNA-seq Dataset (GSE55296):**  
-  Contains gene expression profiles from heart tissue (heart failure patients with cardiomyopathy vs. healthy controls).  
-  - **URL:** [GEO GSE55296](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE55296)  
-  - **Size:** Processed count matrix (~1.8 MB)
+### Required Datasets
+- **GEO RNA-seq Dataset (GSE55296):**
+  Contains gene expression profiles from heart tissue (heart failure patients with cardiomyopathy vs. healthy controls).
+  - **Access:** Automatically downloaded by setup script
+  - **Location:** `data/geo/GSE55296_series_matrix.txt`
+  - **Size:** Series matrix data (~2 MB)
 
-- **ENCODE Heart Tissue Data:**  
-  Use ENCODE to download ChIP-seq peaks or regulatory region annotations from human heart tissue (e.g., left ventricle).  
-  - **URL:** Visit the [ENCODE Portal](https://www.encodeproject.org/) and search for heart tissue experiments.  
+- **ENCODE Heart Tissue Data:**
+  ChIP-seq peaks or regulatory region annotations from human heart tissue (e.g., left ventricle).
+  - **Access:** Manual download required
+  - **Steps:**
+    1. Visit [ENCODE Portal](https://www.encodeproject.org/)
+    2. Search for "heart tissue ChIP-seq"
+    3. Download relevant BED files to `data/encode/`
   - **Size:** BED files typically range from a few MBs
 
-- **GTEx Heart Tissue Expression Data:**  
-  Contains median expression levels of genes across human tissues, including the heart.  
-  - **URL:** [GTEx Portal](https://gtexportal.org/) – download the expression TSV files  
-  - **Size:** Varies (often a few MBs for summary data)
+- **GTEx Heart Tissue Expression Data:**
+  Expression levels of genes across heart tissue samples (Heart - Left Ventricle and Heart - Atrial Appendage).
+  - **Access:** Direct download via script
+  - **Files:**
+    1. RNA-seq Gene TPM Data (v8) (~1-2 GB):
+       - Contains transcript-per-million values for all genes
+       - Located at: `data/gtex/GTEx_Analysis_v8_RNA-seq_RNA-SeQCv1.1.9_gene_tpm.gct.gz`
+    2. Sample Attributes:
+       - Metadata for filtering heart-specific samples
+       - Located at: `data/gtex/GTEx_Analysis_v8_Annotations_SampleAttributesDS.txt`
+    3. Subject Phenotypes:
+       - Donor clinical and demographic data
+       - Located at: `data/gtex/GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.txt`
 
-- **Human Genome Reference (GRCh38):**  
-  Download the primary assembly from Ensembl to retrieve sequences for specific genes.  
-  - **URL:** [Ensembl FTP](ftp://ftp.ensembl.org/pub/release-108/fasta/homo_sapiens/dna/)  
+- **Human Genome Reference (GRCh38):**
+  Primary assembly from Ensembl (release 109) for sequence retrieval.
+  - **Access:** Automatically downloaded by setup script
+  - **Location:** `data/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz`
   - **Size:** Several hundred MBs compressed
 
 ---
@@ -169,31 +184,94 @@ This weekend project outlines an end-to-end pipeline using DNABERT to analyze nu
 ```bash
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status.
+# Exit immediately if any command fails.
 set -e
 
+echo "Setting up project environment..."
+
+# Function to create directory if it doesn't exist
+create_dir_if_missing() {
+    if [ ! -d "$1" ]; then
+        echo "Creating directory: $1"
+        mkdir -p "$1"
+    else
+        echo "Directory already exists: $1"
+    fi
+}
+
+# Create project directories for external data files
 echo "Setting up project directories..."
-mkdir -p data models notebooks results src
+create_dir_if_missing "data"
+create_dir_if_missing "models"
+create_dir_if_missing "notebooks"
+create_dir_if_missing "results"
+create_dir_if_missing "src"
 
-echo "Creating conda environment for DNABERT with Python 3.11..."
-conda create -n dnabert_env python=3.11 -y
+echo "Creating conda environment for DNABERT_2 with Python 3.11..."
+# Create a new conda environment with Python 3.11 if it doesn't exist
+if ! conda info --envs | grep -q "^dnabert_env"; then
+    conda create -n dnabert_env python=3.11 -y
+fi
 
+# Activate the environment
 echo "Activating the dnabert_env environment..."
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate dnabert_env
 
 echo "Installing Python dependencies..."
+# Upgrade pip and install essential packages
 pip install --upgrade pip
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install PyTorch 2.0.0 (known compatible version) with appropriate backend
+if [[ "$(uname)" == "Darwin" ]]; then
+    echo "Installing PyTorch with MPS support for Mac..."
+    pip install torch==2.0.0 torchvision==0.15.0 torchaudio==2.0.0
+else
+    echo "Installing PyTorch (CPU version)..."
+    pip install torch==2.0.0 torchvision==0.15.0 torchaudio==2.0.0 --index-url https://download.pytorch.org/whl/cpu
+fi
+
+# Install other dependencies
 pip install transformers datasets pandas numpy scikit-learn jupyterlab tqdm biopython regex sentencepiece
 
-echo "Cloning DNABERT repository into src/ directory..."
-cd src
-git clone https://github.com/jerryji1993/DNABERT.git
-cd DNABERT
-pip install -r requirements.txt
-pip install --editable .
+# Check if DNABERT_2 is already cloned
+if [ ! -d "src/DNABERT_2" ]; then
+    echo "Cloning DNABERT_2 repository into src/ directory..."
+    cd src
+    git clone https://github.com/MAGICS-LAB/DNABERT_2.git
+    cd DNABERT_2
+else
+    echo "DNABERT_2 repository already exists, updating..."
+    cd src/DNABERT_2
+    git pull origin main
+fi
 
+echo "Installing DNABERT_2 requirements (excluding PyTorch)..."
+# Install requirements excluding torch (since we installed it separately)
+grep -v "torch==" requirements.txt | pip install -r /dev/stdin
+
+# Note: DNABERT_2 will be used directly from the src directory
+# Adding src to PYTHONPATH for imports
+REPO_ROOT=$(pwd)/../..
+echo "export PYTHONPATH=\$PYTHONPATH:$REPO_ROOT" >> ~/.bashrc
+echo "export PYTHONPATH=\$PYTHONPATH:$REPO_ROOT" >> ~/.zshrc
+
+# Optional: Install DNABERT-S, the foundation model for generating DNA embeddings.
+if [ -d "DNABERT-S" ]; then
+    echo "Installing DNABERT-S for DNA embeddings..."
+    cd DNABERT-S
+    if [ -f "requirements.txt" ]; then
+        grep -v "torch==" requirements.txt | pip install -r /dev/stdin
+    fi
+    if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then
+        pip install --editable .
+    fi
+    cd ..
+else
+    echo "DNABERT-S directory not found. If DNABERT-S is integrated into DNABERT_2, no separate installation is needed."
+fi
+
+echo
 echo "Environment setup complete!"
-echo "Project directories created: data, models, notebooks, results, src"
-echo "Activate the environment with: conda activate dnabert_env"
+echo "Project directories verified: data, models, notebooks, results, src"
+echo "To activate the environment: conda activate dnabert_env"

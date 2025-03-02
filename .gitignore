@@ -1,0 +1,18 @@
+# dont save the downloaded data
+data/
+
+# dont save the trained models
+models/
+
+# skip typical files
+*.pyc
+__pycache__/
+*.pkl
+*.pyd
+*.pyo
+*.egg
+*.egg-info
+*.log
+*.swp
+*.DS_Store
+*.ipynb_checkpoints
