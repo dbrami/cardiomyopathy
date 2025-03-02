@@ -61,7 +61,9 @@ else
 fi
 
 # Install other dependencies including PyYAML
-pip install transformers datasets pandas numpy scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib pyyaml
+# Pin numpy to 1.x to avoid compatibility issues
+pip install "numpy<2.0.0" ipywidgets
+pip install transformers datasets pandas scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib pyyaml
 
 # Check if DNABERT_2 is already cloned
 if [ ! -d "src/DNABERT_2" ]; then
