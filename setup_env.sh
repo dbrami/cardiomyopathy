@@ -48,7 +48,7 @@ else
 fi
 
 # Install other dependencies
-pip install transformers datasets pandas numpy scikit-learn jupyterlab tqdm biopython regex sentencepiece
+pip install transformers datasets pandas numpy scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib
 
 # Check if DNABERT_2 is already cloned
 if [ ! -d "src/DNABERT_2" ]; then

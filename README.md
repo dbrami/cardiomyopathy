@@ -27,11 +27,22 @@
 ### Environment Setup
 A script (see below) can be used to set up a conda environment, install dependencies, and create the required directory structure:
 - **Directories:**
-  - `data/` – for all downloaded raw data files.
-  - `models/` – for saving pretrained and fine-tuned models.
-  - `notebooks/` – for Jupyter Notebooks.
-  - `results/` – for output files and figures.
-  - `src/` – for source code, including the DNABERT repository.
+  - `data/` – for all downloaded raw data files
+    - `geo/` – GEO RNA-seq data
+    - `encode/` – ENCODE ChIP-seq data
+    - `gtex/` – GTEx expression data
+    - `reference/` – Reference genome
+    - `logs/` – Download logs and status reports
+  - `models/` – for saving pretrained and fine-tuned models
+  - `notebooks/` – for Jupyter Notebooks
+  - `results/` – for output files and figures
+  - `src/` – for source code, including the DNABERT repository
+
+The download script creates detailed logs in `data/logs/` tracking:
+- Success/failure status of each download
+- URLs and file paths
+- Files that were skipped (already present)
+- Timestamp of download attempts
 
 ---
 
@@ -59,15 +70,15 @@ Identify and download datasets relevant to both genomic and transcriptomic analy
   Expression levels of genes across heart tissue samples (Heart - Left Ventricle and Heart - Atrial Appendage).
   - **Access:** Direct download via script
   - **Files:**
-    1. RNA-seq Gene TPM Data (v8) (~1-2 GB):
+    1. RNA-seq Gene TPM Data (v10) (~1-2 GB):
        - Contains transcript-per-million values for all genes
-       - Located at: `data/gtex/GTEx_Analysis_v8_RNA-seq_RNA-SeQCv1.1.9_gene_tpm.gct.gz`
+       - Located at: `data/gtex/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_tpm.gct.gz`
     2. Sample Attributes:
        - Metadata for filtering heart-specific samples
-       - Located at: `data/gtex/GTEx_Analysis_v8_Annotations_SampleAttributesDS.txt`
+       - Located at: `data/gtex/GTEx_Analysis_v10_Annotations_SampleAttributesDS.txt`
     3. Subject Phenotypes:
        - Donor clinical and demographic data
-       - Located at: `data/gtex/GTEx_Analysis_v8_Annotations_SubjectPhenotypesDS.txt`
+       - Located at: `data/gtex/GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt`
 
 - **Human Genome Reference (GRCh38):**
   Primary assembly from Ensembl (release 109) for sequence retrieval.
