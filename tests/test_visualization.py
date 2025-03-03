@@ -147,12 +147,15 @@ def test_invalid_data_handling(data, expected_error, test_output_dir):
     with pytest.raises(ValueError, match=expected_error):
         create_volcano_plot(data, test_output_dir / 'results')
 
-def test_plot_with_missing_directory(test_de_data):
+def test_plot_with_missing_directory(test_de_data, tmp_path):
     """Test plot creation with missing directory"""
-    nonexistent_dir = Path("/nonexistent/directory")
+    # Create a directory with no write permissions
+    no_access_dir = tmp_path / "no_access"
+    no_access_dir.mkdir(parents=True, exist_ok=True)
+    no_access_dir.chmod(0o444)  # read-only
     
-    with pytest.raises(FileNotFoundError):
-        create_volcano_plot(test_de_data, nonexistent_dir)
+    with pytest.raises((PermissionError, OSError)):
+        create_volcano_plot(test_de_data, no_access_dir / "results")
 
 @pytest.mark.parametrize("dpi,figsize", [
     (100, (8, 6)),

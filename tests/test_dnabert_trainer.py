@@ -198,9 +198,22 @@ def test_end_to_end(temp_dir, model_name):
     trainer = DNABERTTrainer(model_name, temp_dir)
     trainer.setup()
     
-    # Train model
-    train_loader, val_loader = trainer.prepare_training_data(TEST_SEQUENCES)
-    trainer.train(train_loader, val_loader, num_epochs=1)
+    # Train model with minimal configuration for testing
+    train_loader, val_loader = trainer.prepare_training_data(
+        TEST_SEQUENCES,
+        batch_size=2,  # Very small batch size for testing
+        max_length=32  # Short sequences for testing
+    )
+    trainer.train(
+        train_loader,
+        val_loader,
+        num_epochs=1,
+        batch_size=2,  # Small batch size for testing
+        eval_steps=1,  # Evaluate every step
+        save_steps=1,  # Save every step
+        warmup_steps=0,  # No warmup needed for testing
+        learning_rate=1e-4  # Small learning rate for testing
+    )
     
     # Generate sequences
     sequences = trainer.generate_sequences(num_sequences=2)

@@ -82,10 +82,12 @@ def pipeline(mock_config):
 @pytest.fixture
 def mock_expression_data():
     """Create mock expression data"""
-    data = pd.DataFrame({
-        'gene_id': ['gene1', 'gene2', 'gene3'],
-        'gene_name': ['GENE1', 'GENE2', 'GENE3']
-    })
+    # Create data with gene_id as index
+    gene_ids = ['gene1', 'gene2', 'gene3']
+    gene_names = ['GENE1', 'GENE2', 'GENE3']
+    
+    data = pd.DataFrame(index=pd.Index(gene_ids, name='gene_id'))
+    data['gene_name'] = gene_names
     
     # Add sample columns (26 cardio + 10 control)
     for i in range(36):
@@ -95,6 +97,8 @@ def mock_expression_data():
         else:  # Control samples
             data[col_name] = np.random.normal(50, 10, size=3)
             
+    # Reset index to include gene_id as a column for saving
+    data = data.reset_index()
     return data
 
 def test_pipeline_initialization(pipeline, mock_config):
@@ -117,7 +121,10 @@ def test_load_geo_expression(pipeline, mock_expression_data, temp_dir):
     
     assert isinstance(expr_df, pd.DataFrame)
     assert len(expr_df) > 0
-    assert len(expr_df.columns) == 38  # 36 samples + gene_id + gene_name
+    assert len(expr_df.columns) == 37  # 36 samples + gene_name (gene_id becomes index)
+    assert 'gene_name' in expr_df.columns
+    assert expr_df.index.name == 'gene_id'
+    assert all(col.startswith('GSM') for col in expr_df.columns if col != 'gene_name')
 
 def test_differential_expression(pipeline, mock_expression_data):
     """Test differential expression analysis"""
@@ -177,22 +184,22 @@ def test_complete_pipeline_run(pipeline, mock_expression_data, temp_dir, data_ge
         except Exception as e:
             pytest.fail(f"Pipeline execution failed: {str(e)}")
 
-def test_error_handling(temp_dir):
+def test_error_handling(temp_dir, mock_config):
     """Test error handling in pipeline"""
     # Test with invalid configuration
     with pytest.raises(RuntimeError, match="Error loading config"):
         Pipeline(config_path=temp_dir / "nonexistent.yaml")
     
-    # Test with invalid expression data
-    pipeline = Pipeline(mock_config)
+    # Test with invalid data file
+    pipeline = Pipeline(config_path=mock_config)
     pipeline.config['files']['geo']['counts']['filename'] = "nonexistent.txt"
-    with pytest.raises(Exception):
+    with pytest.raises(FileNotFoundError):
         pipeline.load_geo_expression()
 
 @pytest.mark.parametrize("sample_count,expected_genes", [
-    (5, 5),
-    (10, 10),
-    (20, 20)
+(5, 5),
+(10, 10),
+(20, 20)
 ])
 def test_pipeline_with_different_sample_sizes(pipeline, sample_count, expected_genes):
     """Test pipeline with different sample sizes"""

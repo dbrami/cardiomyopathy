@@ -40,8 +40,26 @@ class Pipeline:
         self._create_directories()
         
     def _load_config(self, config_path):
-        """Load configuration from YAML file"""
+        """
+        Load configuration from YAML file
+        
+        Args:
+            config_path: Path to config file or Path-like object
+            
+        Returns:
+            dict: Loaded configuration
+            
+        Raises:
+            RuntimeError: If config cannot be loaded
+        """
         try:
+            # Handle case where config_path might be a function (for testing)
+            if callable(config_path):
+                config_path = config_path()
+                
+            if not isinstance(config_path, (str, bytes, os.PathLike)):
+                raise TypeError(f"Invalid config_path type: {type(config_path)}")
+                
             with open(config_path, 'r') as f:
                 return yaml.safe_load(f)
         except Exception as e:
@@ -84,8 +102,21 @@ class Pipeline:
                                 if counts_config['compressed'] else None)
             
             # Process dataframe
-            expr_df.set_index('Unnamed: 0', inplace=True)
-            expr_df.index.name = 'gene_id'
+            if 'gene_id' in expr_df.columns:
+                gene_id_col = expr_df['gene_id']
+                expr_df = expr_df.drop('gene_id', axis=1)
+                expr_df.index = gene_id_col
+                expr_df.index.name = 'gene_id'
+            elif 'Unnamed: 0' in expr_df.columns:
+                expr_df = expr_df.set_index('Unnamed: 0')
+                expr_df.index.name = 'gene_id'
+            else:
+                raise ValueError("Missing gene_id column in expression data")
+
+            # Ensure gene_name is first column if present
+            if 'gene_name' in expr_df.columns:
+                cols = ['gene_name'] + [col for col in expr_df.columns if col != 'gene_name']
+                expr_df = expr_df[cols]
             
             self.logger.info(f"Loaded expression data with shape {expr_df.shape}")
             return expr_df
