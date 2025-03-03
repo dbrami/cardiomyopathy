@@ -1,0 +1,50 @@
+# Include production requirements
+-r requirements.txt
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=3.0.0
+pytest-mock>=3.6.1
+pytest-env>=0.6.2
+coverage>=6.2
+
+# Code quality
+black>=22.3.0
+isort>=5.10.1
+flake8>=4.0.1
+pylint>=2.12.2
+mypy>=0.931
+
+# Type checking
+types-PyYAML>=6.0.1
+types-requests>=2.27.7
+typing-extensions>=4.0.1
+
+# Documentation
+sphinx>=4.4.0
+sphinx-rtd-theme>=1.0.0
+sphinx-autodoc-typehints>=1.12.0
+
+# Development tools
+ipython>=8.0.1
+jupyter>=1.0.0
+notebook>=6.4.8
+jupyterlab>=3.2.8
+
+# Debugging
+ipdb>=0.13.9
+line-profiler>=3.3.1
+memory-profiler>=0.60.0
+
+# Git hooks
+pre-commit>=2.17.0
+
+# Security
+bandit>=1.7.1
+safety>=1.10.3
+
+# Build tools
+build>=0.7.0
+twine>=3.8.0
+setuptools>=60.5.0
+wheel>=0.37.1

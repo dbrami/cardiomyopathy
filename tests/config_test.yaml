@@ -1,0 +1,139 @@
+# Test configuration for siRNA analysis pipeline
+
+version: 'test'
+
+# Test directories relative to project root
+directories:
+  data: test_data
+  geo: test_data/geo
+  encode: test_data/encode
+  gtex: test_data/gtex
+  reference: test_data/reference
+  logs: test_data/logs
+  models: test_models
+  results: test_results
+
+# Test file configurations
+files:
+  geo:
+    counts:
+      filename: test_counts.txt
+      compressed: false
+      # Test data will be generated with:
+      # - 3 genes
+      # - 26 cardiomyopathy samples
+      # - 10 control samples
+
+    series_matrix:
+      filename: test_series_matrix.txt
+      compressed: false
+
+  gtex:
+    version: test
+    tpm_data:
+      filename: test_tpm.gct
+      compressed: false
+    sample_attributes:
+      filename: test_attributes.txt
+      compressed: false
+
+  reference:
+    genome:
+      filename: test_genome.fa
+      compressed: false
+
+# Model configurations for testing
+model:
+  dnabert:
+    base_model: "zhihan1996/DNABERT-2-117M"
+    max_length: 32  # Smaller for testing
+    batch_size: 2   # Smaller for testing
+    num_epochs: 1   # Single epoch for testing
+    learning_rate: 2e-5
+    warmup_steps: 2
+    save_steps: 2
+    eval_steps: 2
+
+# Analysis parameters for testing
+analysis:
+  differential_expression:
+    p_value_threshold: 0.05
+    log2fc_threshold: 1.0
+    min_expression: 10
+  
+  sequence:
+    promoter_length: 100  # Shorter for testing
+    max_mismatches: 3
+    seed_region: 2
+    min_gc_content: 30
+    max_gc_content: 70
+  
+  visualization:
+    dpi: 100  # Lower resolution for testing
+    fig_width: 8
+    fig_height: 6
+    font_size: 10
+
+# Test data specifications
+test_data:
+  # Sample sizes for different test scenarios
+  small:
+    num_genes: 3
+    num_sequences: 2
+    seq_length: 100
+  
+  medium:
+    num_genes: 10
+    num_sequences: 5
+    seq_length: 200
+  
+  large:
+    num_genes: 20
+    num_sequences: 10
+    seq_length: 500
+
+  # Mock data parameters
+  mock:
+    expression_mean: 100
+    expression_std: 10
+    gc_content_range: [30, 70]
+    peak_length_range: [100, 1000]
+
+# Pytest configurations
+pytest:
+  markers:
+    slow: "marks tests as slow (deselect with '-m \"not slow\"')"
+    integration: "marks tests as integration tests"
+  
+  test_paths:
+    - tests/test_sequence_analysis.py
+    - tests/test_dnabert_trainer.py
+    - tests/test_visualization.py
+    - tests/test_pipeline.py
+  
+  coverage:
+    paths:
+      - src/sequence_analysis.py
+      - src/dnabert_trainer.py
+      - src/visualization.py
+      - src/siRNA_v3.py
+    exclude_paths:
+      - src/DNABERT_2/*
+      - tests/*
+      - setup.py
+    
+  # Maximum test execution time in seconds
+  timeout: 300  # 5 minutes
+
+# Logging configuration for tests
+logging:
+  level: DEBUG  # More detailed logging for testing
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  handlers:
+    file:
+      filename: test_execution.log
+      mode: w
+      level: DEBUG
+    console:
+      level: INFO
+      format: '%(levelname)s: %(message)s'

@@ -8,6 +8,8 @@ directories:
   gtex: data/gtex
   reference: data/reference
   logs: data/logs
+  models: models
+  results: results
 
 # File configurations
 files:
@@ -48,3 +50,43 @@ files:
       https://www.encodeproject.org/
       Search for: 'heart tissue ChIP-seq'
     search_url: https://www.encodeproject.org/search/?type=Experiment&status=released&searchTerm=heart+tissue&assay_title=Histone+ChIP-seq&biosample_ontology.term_name=heart+left+ventricle&files.file_type=bed+narrowPeak
+
+# Model configurations
+model:
+  dnabert:
+    base_model: "zhihan1996/DNABERT-2-117M"
+    max_length: 128
+    batch_size: 32
+    num_epochs: 10
+    learning_rate: 2e-5
+    warmup_steps: 500
+    save_steps: 1000
+    eval_steps: 500
+
+# Analysis parameters
+analysis:
+  differential_expression:
+    p_value_threshold: 0.05
+    log2fc_threshold: 1.0
+    min_expression: 10
+  
+  sequence:
+    promoter_length: 1000
+    max_mismatches: 3
+    seed_region: 2
+    min_gc_content: 30
+    max_gc_content: 70
+  
+  visualization:
+    dpi: 300
+    fig_width: 12
+    fig_height: 8
+    font_size: 10
+
+# Logging configuration
+logging:
+  level: INFO
+  file_rotation: 5
+  max_file_size: 10485760  # 10MB in bytes
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  console_format: '%(levelname)s - %(message)s'

@@ -11,300 +11,293 @@ import os
 import yaml
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from glob import glob
 import GEOparse
 from Bio import SeqIO
 from tqdm import tqdm
-import io
-import gzip
-import random
-from transformers import AutoTokenizer, AutoModel
-import torch
-from sklearn.decomposition import PCA
+import logging
+from datetime import datetime
+from pathlib import Path
 
-# Set matplotlib style
-plt.style.use('default')
+# Import custom modules
+from src.visualization import (
+    create_volcano_plot,
+    plot_stability_distribution,
+    plot_sequence_embeddings,
+    plot_off_target_scores,
+    generate_report_figures
+)
+from src.sequence_analysis import SequenceAnalyzer, batch_analyze_sequences
+from src.dnabert_trainer import DNABERTTrainer
 
-def get_path(*parts):
-    """Build path relative to script location"""
-    return os.path.join(os.path.dirname(__file__), '..', *parts)
-
-def load_config():
-    """Load configuration from YAML file"""
-    with open(get_path('config.yaml'), 'r') as f:
-        return yaml.safe_load(f)
-
-def verify_directories(config):
-    """Verify all required directories exist"""
-    for dir_name, dir_path in config['directories'].items():
-        full_path = get_path(dir_path)
-        if os.path.exists(full_path):
-            print(f"{dir_path}:", os.listdir(full_path)[:5])
-        else:
-            print(f"Directory {dir_path} not found")
-
-def load_geo_metadata(config):
-    """Load and parse GEO series matrix file metadata"""
-    matrix_filename = config['files']['geo']['series_matrix']['filename']
-    if config['files']['geo']['series_matrix']['compressed']:
-        matrix_filename += '.gz'
-    matrix_file = get_path(config['directories']['geo'], matrix_filename)
+class Pipeline:
+    """Main pipeline class orchestrating the analysis"""
     
-    try:
-        with gzip.open(matrix_file, 'rt') as f:
-            metadata_lines = []
-            for line in f:
-                if line.startswith('!'):
-                    metadata_lines.append(line)
-                else:
-                    break
+    def __init__(self, config_path="config.yaml"):
+        """Initialize pipeline with configuration"""
+        self.config = self._load_config(config_path)
+        self.logger = self._setup_logging()
+        self._create_directories()
+        
+    def _load_config(self, config_path):
+        """Load configuration from YAML file"""
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except Exception as e:
+            raise RuntimeError(f"Error loading config: {e}")
+            
+    def _setup_logging(self):
+        """Configure logging for the pipeline"""
+        log_dir = Path(self.config['directories']['logs'])
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        log_file = log_dir / f"pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        
+        logging.basicConfig(
+            level=getattr(logging, self.config['logging']['level']),
+            format=self.config['logging']['format'],
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler()
+            ]
+        )
+        
+        return logging.getLogger(__name__)
+            
+    def _create_directories(self):
+        """Create necessary directories"""
+        for dir_path in self.config['directories'].values():
+            Path(dir_path).mkdir(parents=True, exist_ok=True)
+            
+    def load_geo_expression(self):
+        """Load and process GEO expression data"""
+        try:
+            self.logger.info("Loading GEO expression data")
+            counts_config = self.config['files']['geo']['counts']
+            counts_path = Path(self.config['directories']['geo']) / counts_config['filename']
+            
+            if counts_config['compressed']:
+                counts_path = counts_path.with_suffix(counts_path.suffix + '.gz')
+            
+            expr_df = pd.read_csv(counts_path, sep='\t', compression='gzip' 
+                                if counts_config['compressed'] else None)
+            
+            # Process dataframe
+            expr_df.set_index('Unnamed: 0', inplace=True)
+            expr_df.index.name = 'gene_id'
+            
+            self.logger.info(f"Loaded expression data with shape {expr_df.shape}")
+            return expr_df
+            
+        except Exception as e:
+            self.logger.error(f"Error loading GEO data: {e}")
+            raise
+            
+    def perform_differential_expression(self, expr_df):
+        """Perform differential expression analysis"""
+        try:
+            self.logger.info("Performing differential expression analysis")
+            de_params = self.config['analysis']['differential_expression']
+            
+            # Get sample columns
+            sample_cols = [col for col in expr_df.columns if col.startswith('G')]
+            cardio_cols = sample_cols[:26]  # First 26 are cardiomyopathy
+            control_cols = sample_cols[26:]  # Rest are controls
+            
+            # Calculate stats
+            results = {
+                'gene_id': [],
+                'gene_name': [],
+                'log2fc': [],
+                'pvalue': [],
+                'padj': []
+            }
+            
+            for idx, row in expr_df.iterrows():
+                # Skip low expression genes
+                if row[sample_cols].mean() < de_params['min_expression']:
+                    continue
                     
-        sample_lines = [line for line in metadata_lines if line.startswith('!Sample_')]
-        print(f"Found {len(sample_lines)} sample metadata lines")
-        
-        for line in sample_lines:
-            if line.startswith('!Sample_geo_accession'):
-                sample_ids = line.strip().split('\t')[1:]
-                sample_ids = [s.strip('"') for s in sample_ids]
-                print(f"Found {len(sample_ids)} samples")
-                break
+                cardio_expr = row[cardio_cols].astype(float)
+                control_expr = row[control_cols].astype(float)
                 
-    except Exception as e:
-        print(f"Error parsing metadata: {e}")
-        sample_ids = None
-        
-    return sample_ids
-
-def load_geo_expression(config):
-    """Load GEO expression data from counts file"""
-    counts_filename = config['files']['geo']['counts']['filename']
-    if config['files']['geo']['counts']['compressed']:
-        counts_filename += '.gz'
-    counts_file = get_path(config['directories']['geo'], counts_filename)
-    
-    try:
-        geo_expr_df = pd.read_csv(counts_file,
-                                 compression='gzip' if config['files']['geo']['counts']['compressed'] else None,
-                                 sep='\t',
-                                 low_memory=False)
-        
-        # Set index and gene name columns
-        geo_expr_df.set_index('Unnamed: 0', inplace=True)
-        geo_expr_df.index.name = 'gene_id'
-        geo_expr_df.rename(columns={'Unnamed: 1': 'gene_name'}, inplace=True)
-        
-        # Drop any unnamed columns that are all NaN
-        unnamed_cols = [col for col in geo_expr_df.columns if col.startswith('Unnamed:')]
-        geo_expr_df.drop(columns=unnamed_cols, inplace=True)
-        
-        if geo_expr_df.empty:
-            raise ValueError("Empty expression matrix")
+                from scipy import stats
+                t_stat, pval = stats.ttest_ind(cardio_expr, control_expr)
+                log2fc = np.log2((cardio_expr.mean() + 1) / (control_expr.mean() + 1))
+                
+                results['gene_id'].append(idx)
+                results['gene_name'].append(row.iloc[0])
+                results['log2fc'].append(log2fc)
+                results['pvalue'].append(pval)
             
-        return geo_expr_df
-        
-    except Exception as e:
-        print(f"Error loading expression data: {e}")
-        raise
-
-def perform_differential_expression(geo_expr_df):
-    """Perform differential expression analysis between cardiomyopathy and control samples"""
-    sample_cols = [col for col in geo_expr_df.columns if col.startswith('G')]
-    
-    # First 26 samples are cardiomyopathy (13 ischemic + 13 dilated)
-    cardio_cols = sample_cols[0:13] + sample_cols[13:26]  
-    # Last 10 samples are healthy controls
-    control_cols = sample_cols[26:]  
-    
-    if not cardio_cols or not control_cols:
-        print("No sample groups found. Please check the data structure.")
-        return None
-    
-    # Compute mean expression for each group
-    mean_expr_cardio = geo_expr_df[cardio_cols].mean(axis=1)
-    mean_expr_control = geo_expr_df[control_cols].mean(axis=1)
-    
-    # Calculate log2 fold change (adding a pseudocount to avoid log(0))
-    log2_fc = np.log2(mean_expr_cardio + 1) - np.log2(mean_expr_control + 1)
-    
-    # Create a DataFrame with gene IDs and fold change
-    de_results = pd.DataFrame({
-        'Gene': geo_expr_df.iloc[:, 0],  # assuming first column is gene ID
-        'Log2FC': log2_fc
-    })
-    
-    # Select top 10 up-regulated genes in cardiomyopathy
-    top_genes = de_results.sort_values('Log2FC', ascending=False).head(10)
-    return top_genes
-
-def load_gtex_data(config):
-    """Load and process GTEx TPM data"""
-    gtex_tpm_file = get_path(config['directories']['gtex'], 
-                            config['files']['gtex']['tpm_data']['filename'])
-    is_compressed = config['files']['gtex']['tpm_data']['compressed']
-    
-    try:
-        open_func = gzip.open if is_compressed else open
-        mode = 'rt' if is_compressed else 'r'  # text mode for gzip
-        with open_func(gtex_tpm_file, mode) as f:
-            gtex_df = pd.read_csv(f, sep='\t', skiprows=2)
-        return gtex_df
-    except Exception as e:
-        print(f"Error reading GTEx file: {e}")
-        raise
-
-def process_encode_data(config):
-    """Process ENCODE ChIP-seq data"""
-    encode_dir = get_path(config['directories']['encode'])
-    parquet_path = os.path.join(encode_dir, 'aggregated_chipseq.parquet')
-    
-    try:
-        if os.path.exists(parquet_path):
-            encode_df = pd.read_parquet(parquet_path)
-        else:
-            bed_files = glob(os.path.join(encode_dir, '*.bed.gz'))
-            bed_dfs = []
+            # Calculate adjusted p-values
+            from statsmodels.stats.multitest import multipletests
+            padj = multipletests(results['pvalue'], method='fdr_bh')[1]
+            results['padj'] = padj.tolist()  # Convert numpy array to list
             
-            for file in bed_files:
-                try:
-                    df = pd.read_csv(file, sep='\t', header=None, 
-                                   compression='gzip', comment='#')
-                    df['source_file'] = os.path.basename(file)
-                    bed_dfs.append(df)
-                except Exception as e:
-                    print(f"Error reading {file}: {e}")
+            # Create results DataFrame
+            de_results = pd.DataFrame(results)
             
-            if bed_dfs:
-                encode_df = pd.concat(bed_dfs, axis=0, ignore_index=True)
-                encode_df.to_parquet(parquet_path, compression='snappy', 
-                                   engine='pyarrow')
+            # Filter significant genes
+            significant = (
+                (de_results['padj'] < de_params['p_value_threshold']) & 
+                (abs(de_results['log2fc']) > de_params['log2fc_threshold'])
+            )
+            
+            de_results = de_results[significant].sort_values('padj')
+            
+            # Create volcano plot
+            if 'visualization' in self.config['analysis']:
+                viz_params = self.config['analysis']['visualization']
+                dpi = viz_params.get('dpi', 300)
             else:
-                raise ValueError("Failed to load any BED files")
+                dpi = 300
                 
-        return encode_df
-        
-    except Exception as e:
-        print(f"Error processing ENCODE data: {e}")
-        raise
-
-def analyze_peaks(encode_df):
-    """Analyze ENCODE peak characteristics"""
-    encode_df.columns = ['chr', 'start', 'end'] + list(encode_df.columns[3:])
-    encode_df['peak_length'] = encode_df['end'] - encode_df['start']
-    
-    # Plot distribution of peak lengths
-    plt.figure(figsize=(10, 5))
-    plt.hist(encode_df['peak_length'], bins=50, color='lightgreen', edgecolor='black')
-    plt.title('Distribution of ENCODE Peak Lengths')
-    plt.xlabel('Peak Length (bp)')
-    plt.ylabel('Frequency')
-    plt.show()
-    
-    # Count peaks per chromosome
-    chr_counts = encode_df['chr'].value_counts()
-    plt.figure(figsize=(12, 6))
-    chr_counts.plot(kind='bar', color='skyblue')
-    plt.title('Number of Peaks per Chromosome (ENCODE)')
-    plt.xlabel('Chromosome')
-    plt.ylabel('Peak Count')
-    plt.show()
-    
-    print("Top 10 chromosomes by peak count:")
-    print(chr_counts.head(10))
-
-def extract_promoter_sequences(candidate_genes, genome_records, promoter_length=1000):
-    """Extract promoter sequences for candidate genes"""
-    chromosomes = [f"chr{i}" for i in list(range(1, 23)) + ['X', 'Y']]
-    candidate_info = []
-    
-    for gene in candidate_genes:
-        chrom = random.choice(chromosomes)
-        tss = random.randint(1000000, 10000000)  # simulated TSS
-        candidate_info.append({'gene': gene, 'chr': chrom, 'TSS': tss})
-    
-    candidate_df = pd.DataFrame(candidate_info)
-    
-    def extract_promoter(chrom, tss):
-        rec = next((r for r in genome_records if r.id.startswith(chrom)), None)
-        if rec is None:
-            return None
-        start = max(tss - promoter_length, 0)
-        end = tss
-        return str(rec.seq[start:end])
-    
-    candidate_df['promoter_seq'] = candidate_df.apply(
-        lambda row: extract_promoter(row['chr'], row['TSS']), axis=1)
-    
-    return candidate_df
-
-def analyze_sequences_with_dnabert(candidate_df):
-    """Analyze promoter sequences using DNABERT-2"""
-    model_name = "zhihan1996/DNABERT-2-117M"
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
-    
-    def get_embedding(sequence):
-        inputs = tokenizer(sequence, return_tensors='pt', truncation=True, max_length=512)
-        with torch.no_grad():
-            outputs = model(**inputs)
-        return outputs.last_hidden_state[0, 0, :].numpy()
-    
-    embeddings = []
-    valid_genes = []
-    
-    for idx, row in candidate_df.iterrows():
-        seq = row['promoter_seq']
-        if seq and len(seq) > 0:
-            emb = get_embedding(seq)
-            embeddings.append(emb)
-            valid_genes.append(row['gene'])
-    
-    embeddings = np.array(embeddings)
-    
-    # Perform PCA for visualization
-    pca = PCA(n_components=2)
-    embeddings_pca = pca.fit_transform(embeddings)
-    
-    plt.figure(figsize=(8, 6))
-    plt.scatter(embeddings_pca[:, 0], embeddings_pca[:, 1], c='red', alpha=0.7)
-    for i, gene in enumerate(valid_genes):
-        plt.annotate(gene, (embeddings_pca[i, 0], embeddings_pca[i, 1]), 
-                    fontsize=8, alpha=0.75)
-    plt.title('PCA of DNABERT-2 Promoter Embeddings')
-    plt.xlabel('PC1')
-    plt.ylabel('PC2')
-    plt.show()
-    
-    return embeddings, valid_genes
+            create_volcano_plot(
+                de_results,
+                self.config['directories']['results'],
+                de_params['p_value_threshold'],
+                de_params['log2fc_threshold'],
+                dpi=dpi
+            )
+            
+            self.logger.info(f"Found {len(de_results)} significantly differential genes")
+            return de_results
+            
+        except Exception as e:
+            self.logger.error(f"Error in differential expression analysis: {e}")
+            raise
+            
+    def analyze_sequences(self, candidate_genes):
+        """Analyze candidate gene sequences"""
+        try:
+            self.logger.info("Performing sequence analysis")
+            seq_params = self.config['analysis']['sequence']
+            
+            # Load reference genome
+            genome_path = Path(self.config['directories']['reference']) / \
+                         self.config['files']['reference']['genome']['filename']
+            
+            genome_records = {}
+            for record in SeqIO.parse(genome_path, "fasta"):
+                genome_records[record.id] = record.seq
+                
+            # Initialize sequence analyzer
+            analyzer = SequenceAnalyzer()
+            
+            # Process each candidate gene
+            results = []
+            for gene in tqdm(candidate_genes, desc="Analyzing sequences"):
+                # Get promoter sequence (simplified for example)
+                promoter_seq = str(genome_records[gene][:seq_params['promoter_length']])
+                
+                # Analyze sequence
+                analysis = analyzer.evaluate_sequence(promoter_seq, genome_records)
+                results.append(analysis)
+                
+            # Create visualizations
+            plot_stability_distribution(
+                {r['sequence']: r['stability']['total_stability'] for r in results},
+                self.config['directories']['results']
+            )
+            
+            return pd.DataFrame(results)
+            
+        except Exception as e:
+            self.logger.error(f"Error in sequence analysis: {e}")
+            raise
+            
+    def train_dnabert(self, sequences):
+        """Fine-tune DNABERT-2 on siRNA sequences"""
+        try:
+            self.logger.info("Setting up DNABERT-2 training")
+            model_params = self.config['model']['dnabert']
+            
+            # Initialize trainer
+            trainer = DNABERTTrainer(
+                model_name=model_params['base_model'],
+                output_dir=self.config['directories']['models']
+            )
+            
+            # Setup model
+            trainer.setup()
+            
+            # Prepare data
+            train_loader, val_loader = trainer.prepare_training_data(
+                sequences,
+                max_length=model_params['max_length'],
+                batch_size=model_params['batch_size']
+            )
+            
+            # Train model
+            trainer.train(
+                train_loader,
+                val_loader,
+                num_epochs=model_params['num_epochs'],
+                learning_rate=model_params['learning_rate'],
+                warmup_steps=model_params['warmup_steps'],
+                save_steps=model_params['save_steps'],
+                eval_steps=model_params['eval_steps']
+            )
+            
+            # Generate sequences
+            new_sequences = trainer.generate_sequences()
+            
+            # Evaluate sequences
+            evaluations = trainer.evaluate_sequences(new_sequences)
+            
+            return evaluations
+            
+        except Exception as e:
+            self.logger.error(f"Error in DNABERT training: {e}")
+            raise
+            
+    def run(self):
+        """Execute the complete analysis pipeline"""
+        try:
+            self.logger.info("Starting siRNA analysis pipeline")
+            
+            # Load and process expression data
+            expr_df = self.load_geo_expression()
+            
+            # Perform differential expression analysis
+            de_results = self.perform_differential_expression(expr_df)
+            
+            # Analyze sequences
+            candidate_genes = de_results['gene_name'].tolist()[:10]  # Top 10 genes
+            seq_results = self.analyze_sequences(candidate_genes)
+            
+            # Train DNABERT and generate sequences
+            if seq_results is not None and len(seq_results) > 0:
+                model_results = self.train_dnabert(
+                    seq_results['sequence'].tolist()
+                )
+                
+                # Generate report figures
+                generate_report_figures(
+                    {
+                        'differential_expression': de_results,
+                        'sequence_analysis': seq_results,
+                        'model_results': model_results
+                    },
+                    self.config['directories']['results']
+                )
+            
+            self.logger.info("Pipeline completed successfully")
+            
+        except Exception as e:
+            self.logger.error("Pipeline failed", exc_info=True)
+            raise
 
 def main():
-    """Main function to run the complete analysis pipeline"""
-    # Load configuration
-    config = load_config()
-    print("Configuration loaded successfully.")
-    
-    # Verify directory structure
-    verify_directories(config)
-    
-    # Process GEO data
-    sample_ids = load_geo_metadata(config)
-    geo_expr_df = load_geo_expression(config)
-    top_genes = perform_differential_expression(geo_expr_df)
-    candidate_genes = top_genes['Gene'].tolist()
-    
-    # Process GTEx data
-    gtex_df = load_gtex_data(config)
-    
-    # Process ENCODE data
-    encode_df = process_encode_data(config)
-    analyze_peaks(encode_df)
-    
-    # Extract and analyze sequences
-    genome_records = []  # In practice, load from reference genome file
-    candidate_df = extract_promoter_sequences(candidate_genes, genome_records)
-    embeddings, valid_genes = analyze_sequences_with_dnabert(candidate_df)
-    
-    print("Analysis pipeline completed successfully.")
+    """Main entry point"""
+    try:
+        pipeline = Pipeline()
+        pipeline.run()
+    except Exception as e:
+        logging.error(f"Pipeline execution failed: {e}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
     main()
