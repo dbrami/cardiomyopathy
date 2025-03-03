@@ -63,7 +63,8 @@ fi
 # Install other dependencies including PyYAML
 # Pin numpy to 1.x to avoid compatibility issues
 pip install "numpy<2.0.0" ipywidgets
-pip install transformers datasets pandas scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib pyyaml pyarrow
+pip install transformers datasets pandas scikit-learn jupyterlab tqdm 
+pip install biopython regex sentencepiece matplotlib pyyaml pyarrow geoparse
 
 # Enable Jupyter widgets
 jupyter nbextension enable --py widgetsnbextension
