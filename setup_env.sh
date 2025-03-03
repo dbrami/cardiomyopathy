@@ -65,6 +65,10 @@ fi
 pip install "numpy<2.0.0" ipywidgets
 pip install transformers datasets pandas scikit-learn jupyterlab tqdm biopython regex sentencepiece matplotlib pyyaml
 
+# Enable Jupyter widgets
+jupyter nbextension enable --py widgetsnbextension
+jupyter labextension install @jupyter-widgets/jupyterlab-manager
+
 # Check if DNABERT_2 is already cloned
 if [ ! -d "src/DNABERT_2" ]; then
     echo "Cloning DNABERT_2 repository into src/ directory..."

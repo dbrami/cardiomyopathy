@@ -4,6 +4,9 @@ data/
 # dont save the trained models
 models/
 
+# dont save scratch files
+obsolete/
+
 # skip typical files
 *.pyc
 __pycache__/

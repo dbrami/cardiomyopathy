@@ -98,11 +98,18 @@ print_array() {
 log_message "Starting downloads at $(date)"
 log_message "----------------------------------------"
 
-# GEO RNA-seq dataset (GSE55296)
-geo_url=$(yq '.files.geo.series_matrix.url' config.yaml)
-geo_file="${geo_dir}/$(yq '.files.geo.series_matrix.filename' config.yaml)"
-geo_compressed=$(yq '.files.geo.series_matrix.compressed' config.yaml)
-download_file "$geo_url" "$geo_file.gz" "GEO RNA-seq dataset" "$geo_compressed"
+# GEO RNA-seq datasets (GSE55296)
+# Download series matrix
+geo_matrix_url=$(yq '.files.geo.series_matrix.url' config.yaml)
+geo_matrix_file="${geo_dir}/$(yq '.files.geo.series_matrix.filename' config.yaml)"
+geo_matrix_compressed=$(yq '.files.geo.series_matrix.compressed' config.yaml)
+download_file "$geo_matrix_url" "$geo_matrix_file.gz" "GEO RNA-seq series matrix" "$geo_matrix_compressed"
+
+# Download counts data
+geo_counts_url=$(yq '.files.geo.counts.url' config.yaml)
+geo_counts_file="${geo_dir}/$(yq '.files.geo.counts.filename' config.yaml)"
+geo_counts_compressed=$(yq '.files.geo.counts.compressed' config.yaml)
+download_file "$geo_counts_url" "$geo_counts_file.gz" "GEO RNA-seq counts data" "$geo_counts_compressed"
 
 # GTEx data
 gtex_tpm_url=$(yq '.files.gtex.tpm_data.url' config.yaml)

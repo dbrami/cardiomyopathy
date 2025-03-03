@@ -16,6 +16,10 @@ files:
       url: https://ftp.ncbi.nlm.nih.gov/geo/series/GSE55nnn/GSE55296/matrix/GSE55296_series_matrix.txt.gz
       filename: GSE55296_series_matrix.txt
       compressed: true
+    counts:
+      url: https://ftp.ncbi.nlm.nih.gov/geo/series/GSE55nnn/GSE55296/suppl/GSE55296_counts.txt.gz
+      filename: GSE55296_counts.txt
+      compressed: true
 
   gtex:
     version: v10
