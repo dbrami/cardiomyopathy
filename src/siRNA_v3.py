@@ -8,6 +8,7 @@ and performs sequence analysis using DNABERT-2.
 """
 
 import os
+import re
 import yaml
 import pandas as pd
 import numpy as np
@@ -16,6 +17,7 @@ import GEOparse
 from Bio import SeqIO
 from tqdm import tqdm
 import logging
+import gc
 from datetime import datetime
 from pathlib import Path
 
@@ -210,30 +212,100 @@ class Pipeline:
             genome_path = Path(self.config['directories']['reference']) / \
                          self.config['files']['reference']['genome']['filename']
             
-            genome_records = {}
-            for record in SeqIO.parse(genome_path, "fasta"):
-                genome_records[record.id] = record.seq
-                
+            import gzip
+            
             # Initialize sequence analyzer
             analyzer = SequenceAnalyzer()
             
-            # Process each candidate gene
+            # Create index of genome sequence locations for faster access
+            self.logger.info("Creating genome sequence index...")
+            sequence_index = {}
+            with gzip.open(genome_path, 'rt') as handle:
+                start_pos = handle.tell()
+                for record in SeqIO.parse(handle, "fasta"):
+                    sequence_index[record.id] = start_pos
+                    start_pos = handle.tell()
+
+            # Map between actual gene names and sequence IDs
+            # In a real implementation, this would use proper gene annotations
+            # For now, just use gene name as is and warn if no mapping exists
+            gene_to_seq_id = {}
+            for gene in candidate_genes:
+                # Try to find a matching sequence ID
+                potential_id = gene.split('_')[0]  # Take first part of gene name
+                if potential_id in sequence_index:
+                    gene_to_seq_id[gene] = potential_id
+                else:
+                    # Fallback to using gene number if it's in GENE<number> format
+                    match = re.match(r'GENE(\d+)', gene)
+                    if match:
+                        seq_id = str(int(match.group(1)) % 13 + 1)
+                        if seq_id in sequence_index:
+                            gene_to_seq_id[gene] = seq_id
+
+            if not gene_to_seq_id:
+                raise ValueError("No valid sequence mappings found for any genes")
+
+            self.logger.info(f"Found sequence mappings for {len(gene_to_seq_id)}/{len(candidate_genes)} genes")
+
+            # Process genes sequence by sequence using indexed access
             results = []
-            for gene in tqdm(candidate_genes, desc="Analyzing sequences"):
-                # Get promoter sequence (simplified for example)
-                promoter_seq = str(genome_records[gene][:seq_params['promoter_length']])
+            for i, gene in enumerate(candidate_genes, 1):
+                try:
+                    if gene not in gene_to_seq_id:
+                        self.logger.warning(f"No sequence mapping found for gene: {gene}")
+                        continue
+
+                    self.logger.info(f"Processing gene {i}/{len(candidate_genes)}: {gene}")
+                    
+                    seq_id = gene_to_seq_id[gene]
+                    if seq_id not in sequence_index:
+                        self.logger.warning(f"Invalid sequence ID mapping for gene: {gene}")
+                        continue
+
+                    # Read only the needed sequence using index
+                    with gzip.open(genome_path, 'rt') as handle:
+                        handle.seek(sequence_index[seq_id])
+                        record = next(SeqIO.parse(handle, "fasta"))
+                        promoter_seq = str(record.seq[:seq_params['promoter_length']])
+                        current_genome = {seq_id: record.seq}
+
+                    # Analyze sequence
+                    self.logger.info(f"Analyzing {gene} sequence ({len(promoter_seq)} bp)")
+                    analysis = analyzer.evaluate_sequence(promoter_seq, current_genome)
+                    analysis['gene_name'] = gene
+                    analysis['sequence_id'] = seq_id
+                    results.append(analysis)
+
+                    # Log progress
+                    self.logger.info(f"Completed analysis of {gene} (Score: {analysis.get('overall_score', 'N/A')})")
+
+                    # Clean up memory
+                    del current_genome
+
+                except Exception as e:
+                    self.logger.warning(f"Error processing gene {gene}: {e}")
+                    continue
                 
-                # Analyze sequence
-                analysis = analyzer.evaluate_sequence(promoter_seq, genome_records)
-                results.append(analysis)
-                
-            # Create visualizations
+            # Create visualizations with progress tracking
+            self.logger.info("Generating stability distribution plot...")
+            stability_data = {
+                f"{r['gene_name']} ({r['sequence_id']})": r['stability']['total_stability']
+                for r in results
+            }
+            
             plot_stability_distribution(
-                {r['sequence']: r['stability']['total_stability'] for r in results},
+                stability_data,
                 self.config['directories']['results']
             )
+            self.logger.info("Stability plot generated successfully")
             
-            return pd.DataFrame(results)
+            # Convert results to DataFrame and clean up memory
+            df_results = pd.DataFrame(results)
+            del results, stability_data
+            gc.collect()  # Force garbage collection
+            
+            return df_results
             
         except Exception as e:
             self.logger.error(f"Error in sequence analysis: {e}")
