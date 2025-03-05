@@ -131,7 +131,7 @@ def main():
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     # Fine-tune the Evo2 model (results will be stored in the specified output directory)
-    output_dir = "../results/evo2_finetuned"
+    output_dir = "../results/evo2"
     trainer = fine_tune_model(train_dataset, val_dataset, model, output_dir)
 
     # Load promoter regions from the modified path
@@ -154,8 +154,9 @@ def main():
     else:
         final_results = pd.DataFrame(columns=["Gene", "Candidate", "Predicted_Efficiency"])
 
-    final_results.to_csv("predicted_sirna_candidates.csv", index=False)
-    print("Candidate predictions saved to predicted_sirna_candidates.csv")
+    candidates_path = os.path.join(output_dir, "predicted_sirna_candidates.csv")
+    final_results.to_csv(candidates_path, index=False)
+    print(f"Candidate predictions saved to {candidates_path}")
 
     # Generate visualizations and summary report (including epoch-based metric plots)
     visualizations.generate_report(final_results, trainer)

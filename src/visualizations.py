@@ -4,7 +4,7 @@ import os
 
 def generate_report(candidate_results, trainer):
     # Ensure the output directory exists
-    output_dir = "../results/evo-2"
+    output_dir = "../results/evo2"
     os.makedirs(output_dir, exist_ok=True)
 
     # Create a summary table: highest predicted efficiency per gene.
