@@ -8,6 +8,13 @@ from tqdm import tqdm
 
 import visualizations
 
+# --- File Paths ---
+DATA_DIR = "../data"
+RESULTS_DIR = "../results"
+SIRNA_DATA_PATH = os.path.join(DATA_DIR, "mit_sirna/enriched_sirna_data.csv")
+PROMOTER_SEQ_PATH = os.path.join(DATA_DIR, "promoters/promoter_sequences.fasta")
+OUTPUT_DIR = os.path.join(RESULTS_DIR, "evo2")
+
 # --- Device Detection ---
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"Using device: {device}")
@@ -107,8 +114,8 @@ def predict_candidates(model, tokenizer, candidates, max_length):
 
 # --------- Main Function ---------
 def main():
-    # Load the siRNA data from the modified path
-    sirna_df = load_sirna_data("../data/mit_sirna/enriched_sirna_data.csv")
+    # Load the siRNA data
+    sirna_df = load_sirna_data(SIRNA_DATA_PATH)
     sequences = sirna_df["Sense sequence"].tolist()
     labels = sirna_df["mRNA knockdown numeric"].tolist()
 
@@ -130,12 +137,11 @@ def main():
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    # Fine-tune the Evo2 model (results will be stored in the specified output directory)
-    output_dir = "../results/evo2"
-    trainer = fine_tune_model(train_dataset, val_dataset, model, output_dir)
+    # Fine-tune the Evo2 model
+    trainer = fine_tune_model(train_dataset, val_dataset, model, OUTPUT_DIR)
 
-    # Load promoter regions from the modified path
-    promoters = load_promoters("../data/promoters/promoter_sequences.fasta")
+    # Load promoter regions
+    promoters = load_promoters(PROMOTER_SEQ_PATH)
 
     # For each promoter, generate candidate probes and predict their efficiency.
     candidate_results_list = []
@@ -154,7 +160,7 @@ def main():
     else:
         final_results = pd.DataFrame(columns=["Gene", "Candidate", "Predicted_Efficiency"])
 
-    candidates_path = os.path.join(output_dir, "predicted_sirna_candidates.csv")
+    candidates_path = os.path.join(OUTPUT_DIR, "predicted_sirna_candidates.csv")
     final_results.to_csv(candidates_path, index=False)
     print(f"Candidate predictions saved to {candidates_path}")
 
