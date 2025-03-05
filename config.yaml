@@ -22,6 +22,18 @@ files:
       url: https://ftp.ncbi.nlm.nih.gov/geo/series/GSE55nnn/GSE55296/suppl/GSE55296_count_data.txt.gz
       filename: GSE55296_count_data.txt
       compressed: true
+    sample_mapping:
+      url: https://ftp.ncbi.nlm.nih.gov/geo/series/GSE55nnn/GSE55296/suppl/GSE55296_processed_data_readme.txt
+      filename: GSE55296_processed_data_readme.txt
+      compressed: false
+    fpkm:
+      url: https://www.ncbi.nlm.nih.gov/geo/download/?type=rnaseq_counts&acc=GSE55296&format=file&file=GSE55296_norm_counts_FPKM_GRCh38.p13_NCBI.tsv.gz
+      filename: GSE55296_norm_counts_FPKM_GRCh38.p13_NCBI.tsv
+      compressed: true
+    annotation:
+      url: https://www.ncbi.nlm.nih.gov/geo/download/?format=file&type=rnaseq_counts&file=Human.GRCh38.p13.annot.tsv.gz
+      filename: Human.GRCh38.p13.annot.tsv
+      compressed: true
 
   gtex:
     version: v10

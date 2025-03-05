@@ -7,6 +7,9 @@ models/
 # dont save scratch files
 obsolete/
 
+# dont save results
+results/
+
 # skip typical files
 *.pyc
 __pycache__/
