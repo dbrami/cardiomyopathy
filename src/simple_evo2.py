@@ -15,15 +15,18 @@ SIRNA_DATA_PATH = os.path.join(DATA_DIR, "mit_sirna/enriched_sirna_data.csv")
 PROMOTER_SEQ_PATH = os.path.join(DATA_DIR, "promoters/promoter_sequences.fasta")
 OUTPUT_DIR = os.path.join(RESULTS_DIR, "evo2")
 
-# --- Device Detection ---
+# --- Device Detection for MacBook M3 using MPS ---
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"Using device: {device}")
 
 # --- Hyperparameters (adjust these as needed) ---
-NUM_EPOCHS = 3             # Number of training epochs
-LEARNING_RATE = 5e-5         # Learning rate for fine-tuning
-TRAIN_BATCH_SIZE = 16        # Training batch size
-EVAL_BATCH_SIZE = 16         # Evaluation batch size
+NUM_EPOCHS = 30            # Number of training epochs
+LEARNING_RATE = 5e-5       # Learning rate for fine-tuning
+TRAIN_BATCH_SIZE = 16      # Training batch size
+EVAL_BATCH_SIZE = 16       # Evaluation batch size
+
+# --- Model Names as Global Variables ---
+MODEL_NAMES = ["arcinstitute/evo2_1b_base", "facebook/esm2_t12_35M_UR50D"]
 
 # --------- Data Loading Functions ---------
 def load_sirna_data(filepath):
@@ -34,7 +37,6 @@ def load_sirna_data(filepath):
 def load_promoters(fasta_path):
     promoters = {}
     for record in SeqIO.parse(fasta_path, "fasta"):
-        # Extract the gene name (first token after '>')
         gene_name = record.description.split()[0][1:]
         promoters[gene_name] = str(record.seq)
     return promoters
@@ -47,7 +49,6 @@ class SiRNADataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        # For regression we need a float label.
         item["labels"] = torch.tensor(self.labels[idx], dtype=torch.float)
         return item
 
@@ -98,8 +99,7 @@ def generate_candidate_probes(promoter_seq, window_size=21, step=1):
     return candidates
 
 def predict_candidates(model, tokenizer, candidates, max_length):
-    # Due to known issues with MPS and some embedding operations,
-    # temporarily move the model and inputs to CPU for inference.
+    # Move model to CPU for inference to avoid potential MPS issues
     model_cpu = model.to("cpu")
     encodings = tokenizer(candidates, truncation=True, padding=True, max_length=max_length, return_tensors="pt")
     encodings = {k: v.to("cpu") for k, v in encodings.items()}
@@ -108,7 +108,7 @@ def predict_candidates(model, tokenizer, candidates, max_length):
     predictions = outputs.logits.squeeze().tolist()
     if isinstance(predictions, float):
         predictions = [predictions]
-    # Move the model back to the detected device.
+    # Move model back to original device (MPS if available)
     model.to(device)
     return predictions
 
@@ -119,31 +119,39 @@ def main():
     sequences = sirna_df["Sense sequence"].tolist()
     labels = sirna_df["mRNA knockdown numeric"].tolist()
 
-    # ---- Model and Tokenizer Setup using Evo2 from Hugging Face ----
-    # Evo2_1b_base is a 1B-parameter model. Ensure you have enough memory.
-    config = AutoConfig.from_pretrained("arcinstitute/evo2_1b_base")
-    config.num_labels = 1  # Set number of labels for regression
-    model = AutoModelForSequenceClassification.from_pretrained(
-        "arcinstitute/evo2_1b_base",
-        config=config
-    )
-    tokenizer = AutoTokenizer.from_pretrained("arcinstitute/evo2_1b_base")
+    # ---- Model and Tokenizer Setup ----
+    model = None
+    tokenizer = None
+    for model_name in MODEL_NAMES:
+        try:
+            config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+            config.num_labels = 1  # Set number of labels for regression
+            model = AutoModelForSequenceClassification.from_pretrained(model_name, config=config, trust_remote_code=True)
+            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+            print(f"Successfully loaded model: {model_name}")
+            break
+        except ValueError as e:
+            print(f"Error loading {model_name}: {e}")
+    if model is None:
+        raise RuntimeError("Failed to load any of the specified models.")
+
+    # Move model to MPS device if available
     model.to(device)
     max_length = 50  # Maximum sequence length
 
-    # Create the dataset and split into training and validation sets
+    # Create dataset and split
     dataset = SiRNADataset(sequences, labels, tokenizer, max_length)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    # Fine-tune the Evo2 model
+    # Fine-tune the model
     trainer = fine_tune_model(train_dataset, val_dataset, model, OUTPUT_DIR)
 
     # Load promoter regions
     promoters = load_promoters(PROMOTER_SEQ_PATH)
 
-    # For each promoter, generate candidate probes and predict their efficiency.
+    # Generate and predict candidate probes
     candidate_results_list = []
     for gene, seq in tqdm(promoters.items(), desc="Processing promoters"):
         candidates = generate_candidate_probes(seq, window_size=21, step=1)
@@ -155,16 +163,12 @@ def main():
         candidate_df["Gene"] = gene
         candidate_results_list.append(candidate_df)
 
-    if candidate_results_list:
-        final_results = pd.concat(candidate_results_list, ignore_index=True)
-    else:
-        final_results = pd.DataFrame(columns=["Gene", "Candidate", "Predicted_Efficiency"])
-
+    final_results = pd.concat(candidate_results_list, ignore_index=True) if candidate_results_list else pd.DataFrame(columns=["Gene", "Candidate", "Predicted_Efficiency"])
     candidates_path = os.path.join(OUTPUT_DIR, "predicted_sirna_candidates.csv")
     final_results.to_csv(candidates_path, index=False)
     print(f"Candidate predictions saved to {candidates_path}")
 
-    # Generate visualizations and summary report (including epoch-based metric plots)
+    # Generate visualizations
     visualizations.generate_report(final_results, trainer)
 
 if __name__ == "__main__":
